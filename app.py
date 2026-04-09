@@ -10,14 +10,40 @@ st.title("📧 Email Finder + Verifier")
 
 # -------- EMAIL PATTERNS --------
 def generate_emails(first, last, domain):
-    first = first.lower()
-    last = last.lower()
-    return [
-        f"{first}@{domain}",
+    first = first.lower().strip()
+    last = last.lower().strip()
+
+    f = first[0] if first else ""
+    l = last[0] if last else ""
+
+    patterns = [
         f"{first}.{last}@{domain}",
-        f"{first[0]}{last}@{domain}",
-        f"{last}@{domain}"
+        f"{f}.{last}@{domain}",
+        f"{first}@{domain}",
+        f"{f}{last}@{domain}",
+
+        f"{first}_{last}@{domain}",
+        f"{first}-{last}@{domain}",
+        f"{first}{last}@{domain}",
+        f"{last}.{first}@{domain}",
+        f"{last}{first}@{domain}",
+
+        f"{first}.{l}@{domain}",
+        f"{f}.{l}@{domain}",
+        f"{f}{l}@{domain}",
+
+        f"{first[0:2]}{last}@{domain}" if len(first) > 1 else "",
+        f"{first}{last[0:2]}@{domain}" if len(last) > 1 else "",
+
+        # Generic inboxes
+        f"info@{domain}",
+        f"contact@{domain}",
+        f"hello@{domain}",
+        f"admin@{domain}",
+        f"sales@{domain}",
     ]
+
+    return list(set([p for p in patterns if p]))
 
 # -------- MX RECORD --------
 def get_mx(domain):
@@ -46,11 +72,36 @@ def verify_email(email, mx):
     except:
         return "Unknown"
 
-# -------- CATCH-ALL --------
+# -------- CATCH-ALL CHECK --------
 def is_catch_all(domain, mx):
     fake_email = f"random123456@{domain}"
     result = verify_email(fake_email, mx)
     return result == "Valid"
+
+# -------- FIND BEST EMAILS --------
+def find_emails(first, last, domain):
+    mx = get_mx(domain)
+    if not mx:
+        return []
+
+    catch_all = is_catch_all(domain, mx)
+    emails = generate_emails(first, last, domain)
+
+    valid_results = []
+
+    for email in emails:
+        status = verify_email(email, mx)
+
+        if catch_all:
+            status = "Catch-all"
+
+        if status in ["Valid", "Catch-all"]:
+            valid_results.append({
+                "email": email,
+                "status": status
+            })
+
+    return valid_results
 
 # ============================
 # 🔹 SINGLE FINDER
@@ -69,31 +120,14 @@ if st.button("Find Email"):
         st.warning("Please fill all fields")
     else:
         with st.spinner("Checking..."):
-            mx = get_mx(domain)
+            results = find_emails(first_name, last_name, domain)
 
-            if not mx:
-                st.error("No MX records found")
+            if results:
+                df = pd.DataFrame(results)
+                st.success("Emails Found 🎉")
+                st.dataframe(df)
             else:
-                catch_all = is_catch_all(domain, mx)
-                emails = generate_emails(first_name, last_name, domain)
-
-                results = []
-
-                for email in emails:
-                    status = verify_email(email, mx)
-
-                    if catch_all:
-                        status = "Catch-all"
-
-                    results.append({
-                        "email": email,
-                        "status": status
-                    })
-
-                result_df = pd.DataFrame(results)
-
-                st.success("Done 🎉")
-                st.dataframe(result_df)
+                st.error("Emails not found")
 
 # ============================
 # 🔹 BULK FINDER
@@ -121,23 +155,15 @@ if uploaded_file:
                     last = row["last_name"]
                     domain = row["domain"]
 
-                    mx = get_mx(domain)
+                    found = find_emails(first, last, domain)
 
-                    if not mx:
-                        continue
-
-                    catch_all = is_catch_all(domain, mx)
-                    emails = generate_emails(first, last, domain)
-
-                    for email in emails:
-                        status = verify_email(email, mx)
-
-                        if catch_all:
-                            status = "Catch-all"
-
+                    if found:
+                        for r in found:
+                            results.append(r)
+                    else:
                         results.append({
-                            "email": email,
-                            "status": status
+                            "email": f"{first} {last} ({domain})",
+                            "status": "Not Found"
                         })
 
                     time.sleep(2)
