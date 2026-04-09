@@ -2,14 +2,11 @@ import streamlit as st
 import pandas as pd
 import dns.resolver
 import smtplib
-import socket
 import time
 
 st.set_page_config(page_title="Email Finder", page_icon="📧")
 
 st.title("📧 Email Finder + Verifier")
-
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
 
 # -------- EMAIL PATTERNS --------
 def generate_emails(first, last, domain):
@@ -49,20 +46,73 @@ def verify_email(email, mx):
     except:
         return "Unknown"
 
-# -------- CATCH-ALL CHECK --------
+# -------- CATCH-ALL --------
 def is_catch_all(domain, mx):
     fake_email = f"random123456@{domain}"
     result = verify_email(fake_email, mx)
     return result == "Valid"
 
-# -------- MAIN --------
+# ============================
+# 🔹 SINGLE FINDER
+# ============================
+
+st.subheader("🔍 Single Email Finder")
+
+col1, col2 = st.columns(2)
+
+first_name = col1.text_input("First Name")
+last_name = col2.text_input("Last Name")
+domain = st.text_input("Company Domain (e.g. shopify.com)")
+
+if st.button("Find Email"):
+    if not first_name or not last_name or not domain:
+        st.warning("Please fill all fields")
+    else:
+        with st.spinner("Checking..."):
+            mx = get_mx(domain)
+
+            if not mx:
+                st.error("No MX records found")
+            else:
+                catch_all = is_catch_all(domain, mx)
+                emails = generate_emails(first_name, last_name, domain)
+
+                results = []
+
+                for email in emails:
+                    status = verify_email(email, mx)
+
+                    if catch_all:
+                        status = "Catch-all"
+
+                    results.append({
+                        "email": email,
+                        "status": status
+                    })
+
+                result_df = pd.DataFrame(results)
+
+                st.success("Done 🎉")
+                st.dataframe(result_df)
+
+# ============================
+# 🔹 BULK FINDER
+# ============================
+
+st.divider()
+st.subheader("📂 Bulk Email Finder")
+
+uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+
 if uploaded_file:
     df = pd.read_csv(uploaded_file)
 
     if not all(col in df.columns for col in ["first_name", "last_name", "domain"]):
-        st.error("CSV must have first_name, last_name, domain")
+        st.error("CSV must have: first_name, last_name, domain")
     else:
-        if st.button("Start Processing"):
+        st.write(f"Total rows: {len(df)}")
+
+        if st.button("Start Bulk Processing"):
             results = []
 
             with st.spinner("Processing..."):
@@ -74,14 +124,9 @@ if uploaded_file:
                     mx = get_mx(domain)
 
                     if not mx:
-                        results.append({
-                            "domain": domain,
-                            "status": "No MX"
-                        })
                         continue
 
                     catch_all = is_catch_all(domain, mx)
-
                     emails = generate_emails(first, last, domain)
 
                     for email in emails:
@@ -95,7 +140,7 @@ if uploaded_file:
                             "status": status
                         })
 
-                    time.sleep(2)  # prevent blocking
+                    time.sleep(2)
 
             result_df = pd.DataFrame(results)
 
